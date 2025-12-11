@@ -1,6 +1,7 @@
 package main
 
 import (
+    "os"
     "bytes"
     "encoding/json"
     "log"
@@ -29,16 +30,18 @@ type DiscordMessage struct {
 }
 
 func trackImage(w http.ResponseWriter, r *http.Request) {
+    path := r.URL.Path
     ua := r.UserAgent()
     ts := time.Now().Format(time.RFC3339)
 
     msg := DiscordMessage{
-        Content: "/ viewed:\n" +
+        Content: "Page viewed:\n" +
+            "- Path: " + path + "\n" +
             "- Time: " + ts + "\n" +
             "- User-Agent: " + ua,
     }
     body, _ := json.Marshal(msg)
-    http.Post(webhookURL, "application/json", bytes.NewBuffer(body))
+    http.Post(webhookUrl, "application/json", bytes.NewBuffer(body))
 
     w.Header().Set("Content-Type", "image/png")
     w.Write(pixel)
@@ -51,8 +54,8 @@ func main() {
 	if port == "" {
 		port = defaultPort
 	}
-	webhookUrl := os.Getenv("WEBHOOK_URL")
-    http.HandleFunc("/watchdog.png", trackImage)
+	webhookUrl = os.Getenv("WEBHOOK_URL")
+    http.HandleFunc("/", trackImage)
 	log.Println("Listening on :"+port)
     log.Fatal(http.ListenAndServe(":"+port, nil))
 }
