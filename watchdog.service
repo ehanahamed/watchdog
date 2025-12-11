@@ -1,0 +1,17 @@
+[Unit]
+Description=watchdog
+After=network.target
+StartLimitBurst=3
+StartLimitIntervalSec=10
+
+[Service]
+User=watchdog
+WorkingDirectory=/home/watchdog/watchdog
+EnvironmentFile=/home/watchdog/watchdog/.env
+ExecStart=/home/watchdog/watchdog/watchdog-server
+Restart=always
+RestartSec=1
+TimeoutStopSec=1
+
+[Install]
+WantedBy=multi-user.target
