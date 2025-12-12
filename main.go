@@ -7,11 +7,13 @@ import (
     "log"
     "net/http"
     "time"
+    "strings"
 
     "github.com/joho/godotenv"
 )
 
 var webhookUrl string
+var requirePngExt bool
 var pixel = []byte{
     // a valid 1x1 transparent PNG
     0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A,
@@ -31,14 +33,19 @@ type DiscordMessage struct {
 
 func trackImage(w http.ResponseWriter, r *http.Request) {
     path := r.URL.Path
+
+	if requirePngExt && !strings.HasSuffix(path, ".png") {
+		http.NotFound(w, r)
+		return
+	}
+
     ua := r.UserAgent()
-    ts := time.Now().Format(time.RFC3339)
+	ts := time.Now().Format("2006-01-02 15:04:05 MST")
 
     msg := DiscordMessage{
-        Content: "Page viewed:\n" +
-            "- Path: " + path + "\n" +
-            "- Time: " + ts + "\n" +
-            "- User-Agent: " + ua,
+        Content: "someone viewed `" + path + "`\n" +
+            "- time: " + ts + "\n" +
+            "- user-agent: `" + ua + "`",
     }
     body, _ := json.Marshal(msg)
     http.Post(webhookUrl, "application/json", bytes.NewBuffer(body))
@@ -54,8 +61,25 @@ func main() {
 	if port == "" {
 		port = defaultPort
 	}
+	requirePngExtStr := os.Getenv("REQUIRE_PNG_EXTENSION")
+	if requirePngExtStr == "true" {
+		requirePngExt = true
+	} else if requirePngExtStr == "false" || requirePngExtStr == "" {
+		requirePngExt = false
+	} else {
+		log.Fatal(
+			"REQUIRE_PNG_EXTENSION must be \"true\", \"false\", or empty. \n" +
+			"Check `.env` file/environment variables.",
+		)
+	}
 	webhookUrl = os.Getenv("WEBHOOK_URL")
+	if webhookUrl == "" {
+		log.Fatal(
+			"WEBHOOK_URL is empty, you need to set it. \n" +
+			"Check `.env` file/environment variables.",
+		)
+	}
     http.HandleFunc("/", trackImage)
-	log.Println("Listening on :"+port)
+	log.Println("Watchdog is listening on port :"+port)
     log.Fatal(http.ListenAndServe(":"+port, nil))
 }
