@@ -1,6 +1,7 @@
 package main
 
 import (
+    "io"
     "os"
     "bytes"
     "encoding/json"
@@ -12,7 +13,13 @@ import (
     "github.com/joho/godotenv"
 )
 
-var webhookUrl string
+type WebhookRoute struct {
+    Prefix string
+    URL    string
+}
+
+var webhookRoutes []WebhookRoute
+var fallbackWebhook string
 var requirePngExt bool
 var pixel = []byte{
     // a valid 1x1 transparent PNG
@@ -31,27 +38,90 @@ type DiscordMessage struct {
     Content string `json:"content"`
 }
 
-func trackImage(w http.ResponseWriter, r *http.Request) {
-    path := r.URL.Path
+func webhookForPath(path string) string {
+    var bestMatch WebhookRoute
+    matched := false
 
-	if requirePngExt && !strings.HasSuffix(path, ".png") {
-		http.NotFound(w, r)
-		return
-	}
-
-    ua := r.UserAgent()
-	ts := time.Now().Format("2006-01-02 15:04:05 MST")
-
-    msg := DiscordMessage{
-        Content: "someone viewed `" + path + "`\n" +
-            "- time: " + ts + "\n" +
-            "- user-agent: `" + ua + "`",
+    for _, route := range webhookRoutes {
+        if strings.HasPrefix(path, route.Prefix) {
+            if !matched || len(route.Prefix) > len(bestMatch.Prefix) {
+                bestMatch = route
+                matched = true
+            }
+        }
     }
-    body, _ := json.Marshal(msg)
-    http.Post(webhookUrl, "application/json", bytes.NewBuffer(body))
 
-    w.Header().Set("Content-Type", "image/png")
-    w.Write(pixel)
+    if matched {
+        return bestMatch.URL
+    }
+
+    return fallbackWebhook
+}
+
+func truncate(s string, max int) string {
+    if len(s) <= max {
+        return s
+    }
+    return s[:max] + "\n…(truncated)"
+}
+
+func sendWebhook(webhookURL, content string) {
+    if webhookURL == "" {
+        return
+    }
+
+    msg := DiscordMessage{Content: content}
+    body, _ := json.Marshal(msg)
+    _, _ = http.Post(webhookURL, "application/json", bytes.NewBuffer(body))
+}
+
+func track(w http.ResponseWriter, r *http.Request) {
+    path := r.URL.Path
+    ua := r.UserAgent()
+    ts := time.Now().Format("2006-01-02 · 15:04 MST")
+
+    webhook := webhookForPath(path)
+
+    switch r.Method {
+
+    case http.MethodGet:
+        if requirePngExt && !strings.HasSuffix(path, ".png") {
+            http.NotFound(w, r)
+            return
+        }
+
+        go sendWebhook(
+            webhook,
+            "someone viewed `" + path + "`\n" +
+                "- time: " + ts + "\n" +
+                "- user-agent: `" + ua + "`",
+        )
+
+        w.Header().Set("Content-Type", "image/png")
+        w.Write(pixel)
+
+    case http.MethodPost:
+        bodyBytes, err := io.ReadAll(r.Body)
+        if err != nil {
+            http.Error(w, "failed to read body", http.StatusBadRequest)
+            return
+        }
+
+        go sendWebhook(
+            webhook,
+            "message received at `" + path + "`\n" +
+                "- time: " + ts + "\n" +
+                "- user-agent: `" + ua + "`\n" +
+				"- body:\n```" + truncate(string(bodyBytes), 1800) + "```",
+        )
+
+		w.Header().Set("Content-Type", "text/plain")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("okayy"))
+
+    default:
+        w.WriteHeader(http.StatusMethodNotAllowed)
+    }
 }
 
 const defaultPort = "8080"
@@ -61,7 +131,7 @@ func main() {
 	if port == "" {
 		port = defaultPort
 	}
-	requirePngExtStr := os.Getenv("REQUIRE_PNG_EXTENSION")
+	requirePngExtStr := strings.ToLower(os.Getenv("REQUIRE_PNG_EXTENSION"))
 	if requirePngExtStr == "true" {
 		requirePngExt = true
 	} else if requirePngExtStr == "false" || requirePngExtStr == "" {
@@ -72,14 +142,29 @@ func main() {
 			"Check `.env` file/environment variables.",
 		)
 	}
-	webhookUrl = os.Getenv("WEBHOOK_URL")
-	if webhookUrl == "" {
-		log.Fatal(
-			"WEBHOOK_URL is empty, you need to set it. \n" +
-			"Check `.env` file/environment variables.",
-		)
+
+	routes := os.Getenv("WEBHOOK_ROUTES")
+	for _, entry := range strings.Split(routes, ";") {
+	    if entry == "" {
+	        continue
+	    }
+	    parts := strings.SplitN(entry, "=", 2)
+	    if len(parts) != 2 {
+	        log.Fatalf("invalid WEBHOOK_ROUTES entry: %s", entry)
+	    }
+		prefix := strings.TrimRight(parts[0], "/")
+	    webhookRoutes = append(webhookRoutes, WebhookRoute{
+	        Prefix: prefix,
+	        URL:    parts[1],
+	    })
 	}
-    http.HandleFunc("/", trackImage)
+	
+	fallbackWebhook = os.Getenv("FALLBACK_WEBHOOK")
+	if len(webhookRoutes) == 0 && fallbackWebhook == "" {
+	    log.Fatal("No WEBHOOK_ROUTES or FALLBACK_WEBHOOK configured")
+	}
+
+    http.HandleFunc("/", track)
 	log.Println("Watchdog is listening on port :"+port)
     log.Fatal(http.ListenAndServe(":"+port, nil))
 }
