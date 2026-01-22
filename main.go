@@ -92,9 +92,9 @@ func track(w http.ResponseWriter, r *http.Request) {
 
         go sendWebhook(
             webhook,
-            "someone viewed `" + path + "`\n" +
-                "- time: " + ts + "\n" +
-                "- user-agent: `" + ua + "`",
+            "someone viewed `" + path + "`\n\n" +
+                ts + "\n" +
+                "User-Agent: `" + ua + "`",
         )
 
         w.Header().Set("Content-Type", "image/png")
@@ -110,9 +110,9 @@ func track(w http.ResponseWriter, r *http.Request) {
         go sendWebhook(
             webhook,
             "message received at `" + path + "`\n" +
-                "- time: " + ts + "\n" +
-                "- user-agent: `" + ua + "`\n" +
-				"- body:\n```" + truncate(string(bodyBytes), 1800) + "```",
+                ts + "\n" +
+                "User-Agent: `" + ua + "`\n\n" +
+				truncate(string(bodyBytes), 1800),
         )
 
 		w.Header().Set("Content-Type", "text/plain")
