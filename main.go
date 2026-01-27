@@ -76,6 +76,15 @@ func sendWebhook(webhookURL, content string) {
 }
 
 func track(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+	w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+
+	if r.Method == http.MethodOptions {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+
     path := r.URL.Path
     ua := r.UserAgent()
     ts := time.Now().Format("2006-01-02 · 15:04 MST")
