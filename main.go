@@ -88,6 +88,7 @@ func track(w http.ResponseWriter, r *http.Request) {
     path := r.URL.Path
     ua := r.UserAgent()
     ts := time.Now().Format("2006-01-02 · 15:04 MST")
+	ip := getClientIP(r)
 
     webhook := webhookForPath(path)
 
@@ -103,7 +104,8 @@ func track(w http.ResponseWriter, r *http.Request) {
             webhook,
             "someone viewed `" + path + "`\n\n" +
                 ts + "\n" +
-                "User-Agent: `" + ua + "`",
+                "User-Agent: `" + ua + "`\n" +
+                "IP: `" + ip + "`",
         )
 
         w.Header().Set("Content-Type", "image/png")
@@ -120,7 +122,8 @@ func track(w http.ResponseWriter, r *http.Request) {
             webhook,
             "message received at `" + path + "`\n" +
                 ts + "\n" +
-                "User-Agent: `" + ua + "`\n\n" +
+                "User-Agent: `" + ua + "`\n" +
+                "IP: `" + ip + "`\n\n" +
 				truncate(string(bodyBytes), 1800),
         )
 
@@ -131,6 +134,18 @@ func track(w http.ResponseWriter, r *http.Request) {
     default:
         w.WriteHeader(http.StatusMethodNotAllowed)
     }
+}
+
+func getClientIP(r *http.Request) string {
+    for _, header := range []string{"X-Forwarded-For", "X-Real-IP"} {
+        ip := r.Header.Get(header)
+        if ip != "" {
+            return ip
+        }
+    }
+
+    ip := r.RemoteAddr
+    return ip
 }
 
 const defaultPort = "8080"
@@ -171,6 +186,14 @@ func main() {
 	fallbackWebhook = os.Getenv("FALLBACK_WEBHOOK")
 	if len(webhookRoutes) == 0 && fallbackWebhook == "" {
 	    log.Fatal("No WEBHOOK_ROUTES or FALLBACK_WEBHOOK configured")
+	}
+
+	timezone := os.Getenv("TIMEZONE")
+	if timezone != "" {
+		loc, err := time.LoadLocation(timezone)
+		if err != nil {
+			time.Local = loc
+		}
 	}
 
     http.HandleFunc("/", track)
