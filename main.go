@@ -191,7 +191,7 @@ func main() {
 	timezone := os.Getenv("TIMEZONE")
 	if timezone != "" {
 		loc, err := time.LoadLocation(timezone)
-		if err != nil {
+		if err == nil {
 			time.Local = loc
 		}
 	}
